@@ -12,14 +12,50 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//use std::io::{BufWriter, Write};
-//use std::net::TcpStream;
+use std::io::prelude::*;
+use std::io::{BufReader, BufWriter};
+use std::fs::File;
+use std::mem;
 
-//use super::arrow::*;
+use arrow::datatypes::*;
+use arrow::array::*;
 
-//extern crate byteorder;
+extern crate byteorder;
+use self::byteorder::{ReadBytesExt, WriteBytesExt, LittleEndian};
 
-//use self::byteorder::{WriteBytesExt, LittleEndian};
+
+fn write_array(a: &Array, w: &mut BufWriter<File>) {
+    let len : usize = a.len();
+    w.write_i32::<LittleEndian>(a.len() as i32).unwrap();
+    match a.data() {
+        &ArrayData::Int32(ref b) => {
+            w.write_u8(1).unwrap();
+            b.iter().for_each(|v| w.write_i32::<LittleEndian>(v).unwrap() )
+        },
+        &ArrayData::Int64(ref b) => {
+            w.write_u8(2).unwrap();
+            b.iter().for_each(|v| w.write_i64::<LittleEndian>(v).unwrap() )
+        },
+        _ => panic!()
+    }
+}
+
+fn read_array(r: &mut BufReader<File>) -> Array {
+    let len = r.read_i32::<LittleEndian>().unwrap() as usize;
+    let arr_type = r.read_u8().unwrap();
+    match arr_type {
+        1 => {
+            let mut v : Vec<i32> = Vec::with_capacity(len);
+            for _ in 0..len {
+                v.push(r.read_i32::<LittleEndian>().unwrap());
+            }
+            println!("read {:?}", v);
+            Array::from(v)
+        },
+        _ => panic!()
+    }
+
+}
 
 //fn write_column(col: &ArrayData) {
 //
@@ -58,3 +94,26 @@
 //
 //
 //}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_write_array() {
+        let a =  Array::from(vec![1,2,3,4,5]);
+
+        {
+            let mut writer= BufWriter::new(File::create("array.df").unwrap());
+            write_array(&a, &mut writer);
+        }
+
+        let mut reader = BufReader::new(File::open("array.df").unwrap());
+        let b = read_array(&mut reader);
+
+//        println!("a = {:?}", a);
+//        println!("b = {:?}", b);
+
+    }
+}
