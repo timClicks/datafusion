@@ -36,6 +36,29 @@ impl MaxFunction {
     }
 }
 
+macro_rules! update_max_array {
+    ($SELF:ident, $BUF:ident, $VARIANT:ident) => {{
+        if $BUF.len() > 0 {
+            // git min from array
+            let mut max_value = *$BUF.get(0);
+            for i in 0..$BUF.len() as usize {
+                let value = *$BUF.get(i);
+                if value > max_value {
+                    max_value = value;
+                }
+            }
+            // now compare to self
+            match $SELF.value {
+                ScalarValue::Null => $SELF.value = ScalarValue::$VARIANT(max_value),
+                ScalarValue::$VARIANT(current_value) => if max_value > current_value {
+                    $SELF.value = ScalarValue::$VARIANT(max_value)
+                },
+                _ => panic!("type mismatch"),
+            }
+        }
+    }}
+}
+
 impl AggregateFunction for MaxFunction {
     fn name(&self) -> String {
         "MIN".to_string()
@@ -54,19 +77,16 @@ impl AggregateFunction for MaxFunction {
         match args[0] {
             Value::Column(ref array) => {
                 match array.data() {
-                    //TODO support all types using macros
-                    ArrayData::Float64(ref buf) => {
-                        for i in 0..buf.len() as usize {
-                            let value = *buf.get(i);
-                            match self.value {
-                                ScalarValue::Null => self.value = ScalarValue::Float64(value),
-                                ScalarValue::Float64(x) => if value > x {
-                                    self.value = ScalarValue::Float64(value)
-                                },
-                                _ => panic!("type mismatch"),
-                            }
-                        }
-                    }
+                    ArrayData::UInt8(ref buf) => update_max_array!(self, buf, UInt8),
+                    ArrayData::UInt16(ref buf) => update_max_array!(self, buf, UInt16),
+                    ArrayData::UInt32(ref buf) => update_max_array!(self, buf, UInt32),
+                    ArrayData::UInt64(ref buf) => update_max_array!(self, buf, UInt64),
+                    ArrayData::Int8(ref buf) => update_max_array!(self, buf, Int8),
+                    ArrayData::Int16(ref buf) => update_max_array!(self, buf, Int16),
+                    ArrayData::Int32(ref buf) => update_max_array!(self, buf, Int32),
+                    ArrayData::Int64(ref buf) => update_max_array!(self, buf, Int64),
+                    ArrayData::Float32(ref buf) => update_max_array!(self, buf, Float32),
+                    ArrayData::Float64(ref buf) => update_max_array!(self, buf, Float64),
                     _ => unimplemented!("unsupported data type in MaxFunction"),
                 }
                 Ok(())
