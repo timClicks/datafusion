@@ -22,6 +22,7 @@ use super::super::exec::*;
 use super::super::types::*;
 
 use arrow::datatypes::*;
+use arrow::record_batch::*;
 
 pub struct ProjectRelation {
     schema: Rc<Schema>,
@@ -43,17 +44,19 @@ impl SimpleRelation for ProjectRelation {
         let projection_iter = self.input.scan().map(move |r| match r {
             Ok(ref batch) => {
 
-                let projected_columns: Result<Vec<Value>> =
-                    project_expr.iter()
-                        .map(|e| (*e)(batch.as_ref())).collect();
+//                let projected_columns: Result<Vec<Rc<Array>>> =
+//                    project_expr.iter()
+//                        .map(|e| (*e)(batch.as_ref())).collect();
+//
+//                let projected_batch: Rc<RecordBatch> = Rc::new(RecordBatch {
+//                    schema: Rc::new(Schema::empty()), //TODO
+//                    columns: projected_columns?,
+//                    num_rows: batch.num_rows() as i32,
+//                });
+//
+//                Ok(projected_batch)
 
-                let projected_batch: Rc<RecordBatch> = Rc::new(DefaultRecordBatch {
-                    schema: Rc::new(Schema::empty()), //TODO
-                    data: projected_columns?,
-                    row_count: batch.num_rows(),
-                });
-
-                Ok(projected_batch)
+                unimplemented!()
             }
             Err(_) => r,
         });

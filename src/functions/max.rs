@@ -50,41 +50,42 @@ impl AggregateFunction for MaxFunction {
     }
 
     fn execute(&mut self, args: &Vec<Value>) -> Result<()> {
-        assert_eq!(1, args.len());
-        match args[0] {
-            Value::Column(ref array) => {
-                match array.data() {
-                    //TODO support all types using macros
-                    ArrayData::Float64(ref buf) => {
-                        for i in 0..buf.len() as usize {
-                            let value = *buf.get(i);
-                            match self.value {
-                                ScalarValue::Null => self.value = ScalarValue::Float64(value),
-                                ScalarValue::Float64(x) => if value > x {
-                                    self.value = ScalarValue::Float64(value)
-                                },
-                                _ => panic!("type mismatch"),
-                            }
-                        }
-                    }
-                    _ => unimplemented!("unsupported data type in MaxFunction"),
-                }
-                Ok(())
-            }
-            Value::Scalar(ref v) => match v.as_ref() {
-                ScalarValue::Float64(ref value) => {
-                    match self.value {
-                        ScalarValue::Null => self.value = ScalarValue::Float64(*value),
-                        ScalarValue::Float64(x) => if *value > x {
-                            self.value = ScalarValue::Float64(*value)
-                        },
-                        _ => panic!("type mismatch"),
-                    }
-                    Ok(())
-                }
-                _ => unimplemented!("unsupported data type in MaxFunction"),
-            }
-        }
+        unimplemented!()
+//        assert_eq!(1, args.len());
+//        match args[0] {
+//            Value::Column(ref array) => {
+//                match array.data() {
+//                    //TODO support all types using macros
+//                    ArrayData::Float64(ref buf) => {
+//                        for i in 0..buf.len() as usize {
+//                            let value = *buf.get(i);
+//                            match self.value {
+//                                ScalarValue::Null => self.value = ScalarValue::Float64(value),
+//                                ScalarValue::Float64(x) => if value > x {
+//                                    self.value = ScalarValue::Float64(value)
+//                                },
+//                                _ => panic!("type mismatch"),
+//                            }
+//                        }
+//                    }
+//                    _ => unimplemented!("unsupported data type in MaxFunction"),
+//                }
+//                Ok(())
+//            }
+//            Value::Scalar(ref v) => match v.as_ref() {
+//                ScalarValue::Float64(ref value) => {
+//                    match self.value {
+//                        ScalarValue::Null => self.value = ScalarValue::Float64(*value),
+//                        ScalarValue::Float64(x) => if *value > x {
+//                            self.value = ScalarValue::Float64(*value)
+//                        },
+//                        _ => panic!("type mismatch"),
+//                    }
+//                    Ok(())
+//                }
+//                _ => unimplemented!("unsupported data type in MaxFunction"),
+//            }
+//        }
     }
 
     fn finish(&self) -> Result<Value> {

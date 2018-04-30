@@ -30,6 +30,7 @@ use arrow::array::*;
 use arrow::builder::*;
 use arrow::list_builder::*;
 use arrow::datatypes::*;
+use arrow::record_batch::*;
 
 use super::dataframe::*;
 use super::datasources::common::*;
@@ -53,213 +54,225 @@ pub enum DFConfig {
     Remote { etcd: String },
 }
 
-macro_rules! compare_arrays_inner {
-    ($V1:ident, $V2:ident, $F:expr) => {
-        match ($V1.data(), $V2.data()) {
-            (&ArrayData::Float32(ref a), &ArrayData::Float32(ref b)) =>
-                Ok(a.iter().zip(b.iter()).map($F).collect::<Vec<bool>>()),
-            (&ArrayData::Float64(ref a), &ArrayData::Float64(ref b)) =>
-                Ok(a.iter().zip(b.iter()).map($F).collect::<Vec<bool>>()),
-            (&ArrayData::Int8(ref a), &ArrayData::Int8(ref b)) =>
-                Ok(a.iter().zip(b.iter()).map($F).collect::<Vec<bool>>()),
-            (&ArrayData::Int16(ref a), &ArrayData::Int16(ref b)) =>
-                Ok(a.iter().zip(b.iter()).map($F).collect::<Vec<bool>>()),
-            (&ArrayData::Int32(ref a), &ArrayData::Int32(ref b)) =>
-                Ok(a.iter().zip(b.iter()).map($F).collect::<Vec<bool>>()),
-            (&ArrayData::Int64(ref a), &ArrayData::Int64(ref b)) =>
-                Ok(a.iter().zip(b.iter()).map($F).collect::<Vec<bool>>()),
-            //(&ArrayData::Utf8(ref a), &ScalarValue::Utf8(ref b)) => a.iter().map(|n| n > b).collect(),
-            _ => Err(ExecutionError::General("Unsupported types in compare_arrays_inner".to_string()))
-        }
-    }
-}
-
-macro_rules! compare_arrays {
-    ($V1:ident, $V2:ident, $F:expr) => {
-        Ok(Value::Column(Rc::new(Array::from(
-            compare_arrays_inner!($V1, $V2, $F)?,
-        ))))
-    };
-}
-
-macro_rules! compare_array_with_scalar_inner {
-    ($V1:ident, $V2:ident, $F:expr) => {
-        match ($V1.data(), $V2.as_ref()) {
-            (&ArrayData::Float32(ref a), &ScalarValue::Float32(b)) => {
-                Ok(a.iter().map(|aa| (aa, b)).map($F).collect::<Vec<bool>>())
-            }
-            (&ArrayData::Float64(ref a), &ScalarValue::Float64(b)) => {
-                Ok(a.iter().map(|aa| (aa, b)).map($F).collect::<Vec<bool>>())
-            }
-            _ => Err(ExecutionError::General(
-                "Unsupported types in compare_array_with_scalar_inner".to_string(),
-            )),
-        }
-    };
-}
-
-macro_rules! compare_array_with_scalar {
-    ($V1:ident, $V2:ident, $F:expr) => {
-        Ok(Value::Column(Rc::new(Array::from(
-            compare_array_with_scalar_inner!($V1, $V2, $F)?,
-        ))))
-    };
-}
+//macro_rules! compare_arrays_inner {
+//    ($V1:ident, $V2:ident, $F:expr) => {
+//        match ($V1.data(), $V2.data()) {
+//            (&ArrayData::Float32(ref a), &ArrayData::Float32(ref b)) =>
+//                Ok(a.iter().zip(b.iter()).map($F).collect::<Vec<bool>>()),
+//            (&ArrayData::Float64(ref a), &ArrayData::Float64(ref b)) =>
+//                Ok(a.iter().zip(b.iter()).map($F).collect::<Vec<bool>>()),
+//            (&ArrayData::Int8(ref a), &ArrayData::Int8(ref b)) =>
+//                Ok(a.iter().zip(b.iter()).map($F).collect::<Vec<bool>>()),
+//            (&ArrayData::Int16(ref a), &ArrayData::Int16(ref b)) =>
+//                Ok(a.iter().zip(b.iter()).map($F).collect::<Vec<bool>>()),
+//            (&ArrayData::Int32(ref a), &ArrayData::Int32(ref b)) =>
+//                Ok(a.iter().zip(b.iter()).map($F).collect::<Vec<bool>>()),
+//            (&ArrayData::Int64(ref a), &ArrayData::Int64(ref b)) =>
+//                Ok(a.iter().zip(b.iter()).map($F).collect::<Vec<bool>>()),
+//            //(&ArrayData::Utf8(ref a), &ScalarValue::Utf8(ref b)) => a.iter().map(|n| n > b).collect(),
+//            _ => Err(ExecutionError::General("Unsupported types in compare_arrays_inner".to_string()))
+//        }
+//    }
+//}
+//
+//macro_rules! compare_arrays {
+//    ($V1:ident, $V2:ident, $F:expr) => {
+//        Ok(Value::Column(Rc::new(Array::from(
+//            compare_arrays_inner!($V1, $V2, $F)?,
+//        ))))
+//    };
+//}
+//
+//macro_rules! compare_array_with_scalar_inner {
+//    ($V1:ident, $V2:ident, $F:expr) => {
+//        match ($V1.data(), $V2.as_ref()) {
+//            (&ArrayData::Float32(ref a), &ScalarValue::Float32(b)) => {
+//                Ok(a.iter().map(|aa| (aa, b)).map($F).collect::<Vec<bool>>())
+//            }
+//            (&ArrayData::Float64(ref a), &ScalarValue::Float64(b)) => {
+//                Ok(a.iter().map(|aa| (aa, b)).map($F).collect::<Vec<bool>>())
+//            }
+//            _ => Err(ExecutionError::General(
+//                "Unsupported types in compare_array_with_scalar_inner".to_string(),
+//            )),
+//        }
+//    };
+//}
+//
+//macro_rules! compare_array_with_scalar {
+//    ($V1:ident, $V2:ident, $F:expr) => {
+//        Ok(Value::Column(Rc::new(Array::from(
+//            compare_array_with_scalar_inner!($V1, $V2, $F)?,
+//        ))))
+//    };
+//}
 
 impl Value {
-    pub fn eq(&self, other: &Value) -> Result<Value> {
-        match (self, other) {
-            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
-                compare_arrays!(v1, v2, |(aa, bb)| aa == bb)
-            }
-            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => match (v1.data(), v2.as_ref()) {
-                (&ArrayData::Utf8(ref list), &ScalarValue::Utf8(ref b)) => {
-                    let mut v: Vec<bool> = Vec::with_capacity(list.len() as usize);
-                    for i in 0..list.len() as usize {
-                        v.push(list.slice(i) == b.as_bytes());
-                    }
-                    Ok(Value::Column(Rc::new(Array::from(v))))
-                }
-                _ => compare_array_with_scalar!(v1, v2, |(aa, bb)| aa != bb),
-            },
-            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
-                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa == bb)
-            }
-            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
-        }
-    }
-
-    pub fn not_eq(&self, other: &Value) -> Result<Value> {
-        match (self, other) {
-            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
-                compare_arrays!(v1, v2, |(aa, bb)| aa != bb)
-            }
-            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => match (v1.data(), v2.as_ref()) {
-                (&ArrayData::Utf8(ref list), &ScalarValue::Utf8(ref b)) => {
-                    let mut v: Vec<bool> = Vec::with_capacity(list.len() as usize);
-                    for i in 0..list.len() as usize {
-                        v.push(list.slice(i) != b.as_bytes());
-                    }
-                    Ok(Value::Column(Rc::new(Array::from(v))))
-                }
-                _ => compare_array_with_scalar!(v1, v2, |(aa, bb)| aa != bb),
-            },
-            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
-                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa != bb)
-            }
-            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
-        }
-    }
-
-    pub fn lt(&self, other: &Value) -> Result<Value> {
-        match (self, other) {
-            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
-                compare_arrays!(v1, v2, |(aa, bb)| aa < bb)
-            }
-            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => {
-                compare_array_with_scalar!(v1, v2, |(aa, bb)| aa < bb)
-            }
-            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
-                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa < bb)
-            }
-            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
-        }
-    }
-
-    pub fn lt_eq(&self, other: &Value) -> Result<Value> {
-        match (self, other) {
-            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
-                compare_arrays!(v1, v2, |(aa, bb)| aa <= bb)
-            }
-            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => {
-                compare_array_with_scalar!(v1, v2, |(aa, bb)| aa <= bb)
-            }
-            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
-                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa <= bb)
-            }
-            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
-        }
-    }
-
-    pub fn gt(&self, other: &Value) -> Result<Value> {
-        match (self, other) {
-            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
-                compare_arrays!(v1, v2, |(aa, bb)| aa >= bb)
-            }
-            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => {
-                compare_array_with_scalar!(v1, v2, |(aa, bb)| aa >= bb)
-            }
-            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
-                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa >= bb)
-            }
-            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
-        }
-    }
-
-    pub fn gt_eq(&self, other: &Value) -> Result<Value> {
-        match (self, other) {
-            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
-                compare_arrays!(v1, v2, |(aa, bb)| aa > bb)
-            }
-            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => {
-                compare_array_with_scalar!(v1, v2, |(aa, bb)| aa > bb)
-            }
-            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
-                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa > bb)
-            }
-            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
-        }
-    }
-
-    pub fn add(&self, _other: &Value) -> Result<Value> {
-        unimplemented!()
-    }
-    pub fn subtract(&self, _other: &Value) -> Result<Value> {
-        unimplemented!()
-    }
-    pub fn divide(&self, _other: &Value) -> Result<Value> {
-        unimplemented!()
-    }
-    pub fn multiply(&self, _other: &Value) -> Result<Value> {
-        unimplemented!()
-    }
-
-    pub fn and(&self, other: &Value) -> Result<Value> {
-        match (self, other) {
-            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
-                match (v1.data(), v2.data()) {
-                    (ArrayData::Boolean(ref l), ArrayData::Boolean(ref r)) => {
-                        let bools = l.iter()
-                            .zip(r.iter())
-                            .map(|(ll, rr)| ll && rr)
-                            .collect::<Vec<bool>>();
-                        //                        println!("AND: left = {:?}", l.iter().collect::<Vec<bool>>());
-                        //                        println!("AND: right = {:?}", r.iter().collect::<Vec<bool>>());
-                        //                        println!("AND: bools = {:?}", bools);
-                        let bools = Array::from(bools);
-                        Ok(Value::Column(Rc::new(bools)))
-                    }
-                    _ => panic!(),
-                }
-            }
-            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => match (v1.data(), v2.as_ref()) {
-                (ArrayData::Boolean(ref l), ScalarValue::Boolean(r)) => {
-                    let bools = Array::from(l.iter().map(|ll| ll && *r).collect::<Vec<bool>>());
-                    Ok(Value::Column(Rc::new(bools)))
-                }
-                _ => panic!(),
-            },
-            //            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
-            //                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa && bb)
-            //            }
-            //            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
-            _ => panic!(),
-        }
-    }
-
-    pub fn or(&self, _other: &Value) -> Result<Value> {
-        unimplemented!()
-    }
+    pub fn eq(&self, other: &Value) -> Result<Value> { unimplemented!() }
+    pub fn not_eq(&self, other: &Value) -> Result<Value> { unimplemented!() }
+    pub fn gt(&self, other: &Value) -> Result<Value> { unimplemented!() }
+    pub fn gt_eq(&self, other: &Value) -> Result<Value> { unimplemented!() }
+    pub fn lt(&self, other: &Value) -> Result<Value> { unimplemented!() }
+    pub fn lt_eq(&self, other: &Value) -> Result<Value> { unimplemented!() }
+    pub fn multiply(&self, other: &Value) -> Result<Value> { unimplemented!() }
+    pub fn divide(&self, other: &Value) -> Result<Value> { unimplemented!() }
+    pub fn add(&self, other: &Value) -> Result<Value> { unimplemented!() }
+    pub fn subtract(&self, other: &Value) -> Result<Value> { unimplemented!() }
+    pub fn and(&self, other: &Value) -> Result<Value> { unimplemented!() }
+    pub fn or(&self, other: &Value) -> Result<Value> { unimplemented!() }
+//
+//        match (self, other) {
+//            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
+//                compare_arrays!(v1, v2, |(aa, bb)| aa == bb)
+//            }
+//            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => match (v1.data(), v2.as_ref()) {
+//                (&ArrayData::Utf8(ref list), &ScalarValue::Utf8(ref b)) => {
+//                    let mut v: Vec<bool> = Vec::with_capacity(list.len() as usize);
+//                    for i in 0..list.len() as usize {
+//                        v.push(list.slice(i) == b.as_bytes());
+//                    }
+//                    Ok(Value::Column(Rc::new(Array::from(v))))
+//                }
+//                _ => compare_array_with_scalar!(v1, v2, |(aa, bb)| aa != bb),
+//            },
+//            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
+//                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa == bb)
+//            }
+//            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
+//        }
+//    }
+//
+//    pub fn not_eq(&self, other: &Value) -> Result<Value> {
+//        match (self, other) {
+//            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
+//                compare_arrays!(v1, v2, |(aa, bb)| aa != bb)
+//            }
+//            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => match (v1.data(), v2.as_ref()) {
+//                (&ArrayData::Utf8(ref list), &ScalarValue::Utf8(ref b)) => {
+//                    let mut v: Vec<bool> = Vec::with_capacity(list.len() as usize);
+//                    for i in 0..list.len() as usize {
+//                        v.push(list.slice(i) != b.as_bytes());
+//                    }
+//                    Ok(Value::Column(Rc::new(Array::from(v))))
+//                }
+//                _ => compare_array_with_scalar!(v1, v2, |(aa, bb)| aa != bb),
+//            },
+//            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
+//                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa != bb)
+//            }
+//            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
+//        }
+//    }
+//
+//    pub fn lt(&self, other: &Value) -> Result<Value> {
+//        match (self, other) {
+//            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
+//                compare_arrays!(v1, v2, |(aa, bb)| aa < bb)
+//            }
+//            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => {
+//                compare_array_with_scalar!(v1, v2, |(aa, bb)| aa < bb)
+//            }
+//            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
+//                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa < bb)
+//            }
+//            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
+//        }
+//    }
+//
+//    pub fn lt_eq(&self, other: &Value) -> Result<Value> {
+//        match (self, other) {
+//            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
+//                compare_arrays!(v1, v2, |(aa, bb)| aa <= bb)
+//            }
+//            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => {
+//                compare_array_with_scalar!(v1, v2, |(aa, bb)| aa <= bb)
+//            }
+//            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
+//                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa <= bb)
+//            }
+//            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
+//        }
+//    }
+//
+//    pub fn gt(&self, other: &Value) -> Result<Value> {
+//        match (self, other) {
+//            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
+//                compare_arrays!(v1, v2, |(aa, bb)| aa >= bb)
+//            }
+//            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => {
+//                compare_array_with_scalar!(v1, v2, |(aa, bb)| aa >= bb)
+//            }
+//            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
+//                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa >= bb)
+//            }
+//            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
+//        }
+//    }
+//
+//    pub fn gt_eq(&self, other: &Value) -> Result<Value> {
+//        match (self, other) {
+//            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
+//                compare_arrays!(v1, v2, |(aa, bb)| aa > bb)
+//            }
+//            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => {
+//                compare_array_with_scalar!(v1, v2, |(aa, bb)| aa > bb)
+//            }
+//            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
+//                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa > bb)
+//            }
+//            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
+//        }
+//    }
+//
+//    pub fn add(&self, _other: &Value) -> Result<Value> {
+//        unimplemented!()
+//    }
+//    pub fn subtract(&self, _other: &Value) -> Result<Value> {
+//        unimplemented!()
+//    }
+//    pub fn divide(&self, _other: &Value) -> Result<Value> {
+//        unimplemented!()
+//    }
+//    pub fn multiply(&self, _other: &Value) -> Result<Value> {
+//        unimplemented!()
+//    }
+//
+//    pub fn and(&self, other: &Value) -> Result<Value> {
+//        match (self, other) {
+//            (&Value::Column(ref v1), &Value::Column(ref v2)) => {
+//                match (v1.data(), v2.data()) {
+//                    (ArrayData::Boolean(ref l), ArrayData::Boolean(ref r)) => {
+//                        let bools = l.iter()
+//                            .zip(r.iter())
+//                            .map(|(ll, rr)| ll && rr)
+//                            .collect::<Vec<bool>>();
+//                        //                        println!("AND: left = {:?}", l.iter().collect::<Vec<bool>>());
+//                        //                        println!("AND: right = {:?}", r.iter().collect::<Vec<bool>>());
+//                        //                        println!("AND: bools = {:?}", bools);
+//                        let bools = Array::from(bools);
+//                        Ok(Value::Column(Rc::new(bools)))
+//                    }
+//                    _ => panic!(),
+//                }
+//            }
+//            (&Value::Column(ref v1), &Value::Scalar(ref v2)) => match (v1.data(), v2.as_ref()) {
+//                (ArrayData::Boolean(ref l), ScalarValue::Boolean(r)) => {
+//                    let bools = Array::from(l.iter().map(|ll| ll && *r).collect::<Vec<bool>>());
+//                    Ok(Value::Column(Rc::new(bools)))
+//                }
+//                _ => panic!(),
+//            },
+//            //            (&Value::Scalar(ref v1), &Value::Column(ref v2)) => {
+//            //                compare_array_with_scalar!(v2, v1, |(aa, bb)| aa && bb)
+//            //            }
+//            //            (&Value::Scalar(ref _v1), &Value::Scalar(ref _v2)) => unimplemented!(),
+//            _ => panic!(),
+//        }
+//    }
+//
+//    pub fn or(&self, _other: &Value) -> Result<Value> {
+//        unimplemented!()
+//    }
 }
 
 /// Compiled Expression (basically just a closure to evaluate the expression at runtime)
@@ -384,44 +397,45 @@ macro_rules! cast_utf8_to {
 }
 
 fn compile_cast_column(data_type: DataType) -> Result<CompiledCastFunction> {
-    Ok(Box::new( move|v: &Value| {
-        match v {
-            Value::Column(ref array) => {
-                match array.data() {
-                    &ArrayData::Boolean(_) => unimplemented!("CAST from Boolean"),
-                    &ArrayData::UInt8(ref list) => cast_from_to!(u8, data_type, list),
-                    &ArrayData::UInt16(ref list) => cast_from_to!(u16, data_type, list),
-                    &ArrayData::UInt32(ref list) => cast_from_to!(u32, data_type, list),
-                    &ArrayData::UInt64(ref list) => cast_from_to!(u64, data_type, list),
-                    &ArrayData::Int8(ref list) => cast_from_to!(i8, data_type, list),
-                    &ArrayData::Int16(ref list) => cast_from_to!(i16, data_type, list),
-                    &ArrayData::Int32(ref list) => cast_from_to!(i32, data_type, list),
-                    &ArrayData::Int64(ref list) => cast_from_to!(i64, data_type, list),
-                    &ArrayData::Float32(ref list) => cast_from_to!(f32, data_type, list),
-                    &ArrayData::Float64(ref list) => cast_from_to!(f64, data_type, list),
-                    &ArrayData::Struct(_) => unimplemented!("CAST from Struct"),
-                    &ArrayData::Utf8(ref list) => {
-                        match &data_type {
-                            DataType::Boolean => cast_utf8_to!(bool, list),
-                            DataType::Int8 => cast_utf8_to!(i8, list),
-                            DataType::Int16 => cast_utf8_to!(i16, list),
-                            DataType::Int32 => cast_utf8_to!(i32, list),
-                            DataType::Int64 => cast_utf8_to!(i64, list),
-                            DataType::UInt8 => cast_utf8_to!(u8, list),
-                            DataType::UInt16 => cast_utf8_to!(u16, list),
-                            DataType::UInt32 => cast_utf8_to!(u32, list),
-                            DataType::UInt64 => cast_utf8_to!(u64, list),
-                            DataType::Float32 => cast_utf8_to!(f32, list),
-                            DataType::Float64 => cast_utf8_to!(f64, list),
-                            DataType::Utf8 => Ok(v.clone()),
-                            _ => unimplemented!("CAST from Utf8 to {:?}", data_type)
-                        }
-                    }
-                }
-            }
-            _ => unimplemented!("CAST from ScalarValue")
-        }
-    }))
+//    Ok(Box::new( move|v: &Value| {
+//        match v {
+//            Value::Column(ref array) => {
+//                match array.data() {
+//                    &ArrayData::Boolean(_) => unimplemented!("CAST from Boolean"),
+//                    &ArrayData::UInt8(ref list) => cast_from_to!(u8, data_type, list),
+//                    &ArrayData::UInt16(ref list) => cast_from_to!(u16, data_type, list),
+//                    &ArrayData::UInt32(ref list) => cast_from_to!(u32, data_type, list),
+//                    &ArrayData::UInt64(ref list) => cast_from_to!(u64, data_type, list),
+//                    &ArrayData::Int8(ref list) => cast_from_to!(i8, data_type, list),
+//                    &ArrayData::Int16(ref list) => cast_from_to!(i16, data_type, list),
+//                    &ArrayData::Int32(ref list) => cast_from_to!(i32, data_type, list),
+//                    &ArrayData::Int64(ref list) => cast_from_to!(i64, data_type, list),
+//                    &ArrayData::Float32(ref list) => cast_from_to!(f32, data_type, list),
+//                    &ArrayData::Float64(ref list) => cast_from_to!(f64, data_type, list),
+//                    &ArrayData::Struct(_) => unimplemented!("CAST from Struct"),
+//                    &ArrayData::Utf8(ref list) => {
+//                        match &data_type {
+//                            DataType::Boolean => cast_utf8_to!(bool, list),
+//                            DataType::Int8 => cast_utf8_to!(i8, list),
+//                            DataType::Int16 => cast_utf8_to!(i16, list),
+//                            DataType::Int32 => cast_utf8_to!(i32, list),
+//                            DataType::Int64 => cast_utf8_to!(i64, list),
+//                            DataType::UInt8 => cast_utf8_to!(u8, list),
+//                            DataType::UInt16 => cast_utf8_to!(u16, list),
+//                            DataType::UInt32 => cast_utf8_to!(u32, list),
+//                            DataType::UInt64 => cast_utf8_to!(u64, list),
+//                            DataType::Float32 => cast_utf8_to!(f32, list),
+//                            DataType::Float64 => cast_utf8_to!(f64, list),
+//                            DataType::Utf8 => Ok(v.clone()),
+//                            _ => unimplemented!("CAST from Utf8 to {:?}", data_type)
+//                        }
+//                    }
+//                }
+//            }
+//            _ => unimplemented!("CAST from ScalarValue")
+//        }
+//    }))
+    unimplemented!()
 }
 
 /// Compiles a scalar expression into a closure
@@ -436,14 +450,14 @@ pub fn compile_scalar_expr(ctx: &ExecutionContext, expr: &Expr) -> Result<Compil
             }))
         }
         &Expr::Column(index) => Ok(Box::new(move |batch: &RecordBatch| {
-            Ok((*batch.column(index)).clone())
+            Ok(Value::Column((*batch.column(index)).clone()))
         })),
         &Expr::Cast { ref expr, ref data_type } => {
             match expr.as_ref() {
                 &Expr::Column(index) => {
                     let compiled_cast_expr = compile_cast_column(data_type.clone())?;
                     Ok(Box::new(move |batch: &RecordBatch| {
-                            (compiled_cast_expr)(batch.column(index))
+                            (compiled_cast_expr)(&Value::Column(batch.column(index).clone()))
                         }))
                 }
                 _ => Err(ExecutionError::NotImplemented)
@@ -1057,7 +1071,7 @@ impl ExecutionContext {
                         Ok(ref batch) => {
                             ////println!("Processing batch of {} rows", batch.row_count());
                             for i in 0..batch.num_rows() {
-                                let row = batch.row_slice(i);
+                                let row = row_slice(&batch, i);
                                 let csv = row.into_iter()
                                     .map(|v| v.to_string())
                                     .collect::<Vec<String>>()
@@ -1097,33 +1111,34 @@ impl ExecutionContext {
                                     if j > 0 {
                                         w.write_bytes(b",");
                                     }
-                                    match *batch.column(j) {
-                                        Value::Scalar(ref v) => w.write_scalar(v),
-                                        Value::Column(ref v) => match v.data() {
-                                            ArrayData::Boolean(ref v) => w.write_bool(v.get(i)),
-                                            ArrayData::Float32(ref v) => w.write_f32(v.get(i)),
-                                            ArrayData::Float64(ref v) => w.write_f64(v.get(i)),
-                                            ArrayData::Int8(ref v) => w.write_i8(v.get(i)),
-                                            ArrayData::Int16(ref v) => w.write_i16(v.get(i)),
-                                            ArrayData::Int32(ref v) => w.write_i32(v.get(i)),
-                                            ArrayData::Int64(ref v) => w.write_i64(v.get(i)),
-                                            ArrayData::UInt8(ref v) => w.write_u8(v.get(i)),
-                                            ArrayData::UInt16(ref v) => w.write_u16(v.get(i)),
-                                            ArrayData::UInt32(ref v) => w.write_u32(v.get(i)),
-                                            ArrayData::UInt64(ref v) => w.write_u64(v.get(i)),
-                                            ArrayData::Utf8(ref data) => {
-                                                w.write_bytes(data.slice(i))
-                                            }
-                                            ArrayData::Struct(ref v) => {
-                                                let fields = v.iter()
-                                                    .map(|arr| get_value(&arr, i))
-                                                    .collect();
-                                                w.write_bytes(
-                                                    format!("{}", ScalarValue::Struct(fields))
-                                                        .as_bytes(),
-                                                );
-                                            }
-                                        },
+                                    match *batch.schema().column(j).data_type() {
+                                        _ => unimplemented!()
+//                                        Value::Scalar(ref v) => w.write_scalar(v),
+//                                        Value::Column(ref v) => match v.data() {
+//                                            ArrayData::Boolean(ref v) => w.write_bool(v.get(i)),
+//                                            ArrayData::Float32(ref v) => w.write_f32(v.get(i)),
+//                                            ArrayData::Float64(ref v) => w.write_f64(v.get(i)),
+//                                            ArrayData::Int8(ref v) => w.write_i8(v.get(i)),
+//                                            ArrayData::Int16(ref v) => w.write_i16(v.get(i)),
+//                                            ArrayData::Int32(ref v) => w.write_i32(v.get(i)),
+//                                            ArrayData::Int64(ref v) => w.write_i64(v.get(i)),
+//                                            ArrayData::UInt8(ref v) => w.write_u8(v.get(i)),
+//                                            ArrayData::UInt16(ref v) => w.write_u16(v.get(i)),
+//                                            ArrayData::UInt32(ref v) => w.write_u32(v.get(i)),
+//                                            ArrayData::UInt64(ref v) => w.write_u64(v.get(i)),
+//                                            ArrayData::Utf8(ref data) => {
+//                                                w.write_bytes(data.slice(i))
+//                                            }
+//                                            ArrayData::Struct(ref v) => {
+//                                                let fields = v.iter()
+//                                                    .map(|arr| get_value(&arr, i))
+//                                                    .collect();
+//                                                w.write_bytes(
+//                                                    format!("{}", ScalarValue::Struct(fields))
+//                                                        .as_bytes(),
+//                                                );
+//                                            }
+//                                        },
                                     }
                                 }
                                 w.write_bytes(b"\n");
@@ -1150,7 +1165,7 @@ impl ExecutionContext {
                             ////println!("Processing batch of {} rows", batch.row_count());
                             for i in 0..*count {
                                 if i < batch.num_rows() {
-                                    let row = batch.row_slice(i);
+                                    let row = row_slice(&batch, i);
                                     let csv = row.into_iter()
                                         .map(|v| v.to_string())
                                         .collect::<Vec<String>>()
@@ -1224,6 +1239,10 @@ impl ExecutionContext {
     //            Err(e) => Err(>ExecutionError::General(format!("Failed to find a worker node: {}", e)))
     //        }
     //    }
+}
+
+pub fn row_slice(batch: &RecordBatch, row_index: usize) -> Vec<ScalarValue> {
+    unimplemented!()
 }
 
 #[cfg(test)]
@@ -1507,3 +1526,5 @@ mod tests {
     }
 
 }
+
+

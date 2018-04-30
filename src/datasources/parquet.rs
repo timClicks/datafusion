@@ -21,6 +21,7 @@ use arrow::array::*;
 use arrow::builder::*;
 use arrow::list_builder::*;
 use arrow::datatypes::*;
+use arrow::record_batch::*;
 
 use parquet::basic;
 use parquet::column::reader::*;
@@ -110,7 +111,7 @@ impl ParquetFile {
     fn load_batch(&mut self) -> Option<Result<Rc<RecordBatch>>> {
         match &self.current_row_group {
             Some(reader) => {
-                let mut batch: Vec<Value> = Vec::with_capacity(reader.num_columns());
+                let mut batch: Vec<Rc<Array>> = Vec::with_capacity(reader.num_columns());
                 let mut row_count = 0;
                 for i in 0..self.column_readers.len() {
                     let array = match self.column_readers[i] {
@@ -128,7 +129,7 @@ impl ParquetFile {
                                         builder.push(b[j].slice(0, b[j].len()).data());
 
                                     }
-                                    Array::new(count,ArrayData::Utf8(builder.finish()))
+                                    Array::from(builder.finish())
                                 }
                                 _ => panic!("Error reading parquet batch (column {})", i),
                             }
@@ -261,7 +262,7 @@ impl ParquetFile {
                         }
                     };
 
-                    batch.push(Value::Column(Rc::new(array)));
+                    batch.push(Rc::new(array));
                 }
 
 //                println!("Loaded batch of {} rows", row_count);
@@ -269,11 +270,7 @@ impl ParquetFile {
                 if row_count == 0 {
                     None
                 } else {
-                    Some(Ok(Rc::new(DefaultRecordBatch {
-                        schema: self.schema.clone(),
-                        data: batch,
-                        row_count,
-                    })))
+                    Some(Ok(Rc::new(RecordBatch::new(self.schema.clone(), batch))))
                 }
 
             }
@@ -365,7 +362,7 @@ mod tests {
         println!("Schema: {:?}", batch.schema());
         println!("rows: {}; cols: {}", batch.num_rows(), batch.num_columns());
 
-        println!("First row: {:?}", batch.row_slice(0));
+        //println!("First row: {:?}", batch.row_slice(0));
     }
 
     #[test]

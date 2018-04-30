@@ -22,6 +22,7 @@ use arrow::array::*;
 use arrow::builder::*;
 use arrow::datatypes::*;
 use arrow::list_builder::ListBuilder;
+use arrow::record_batch::*;
 
 use csv;
 use csv::{StringRecord, StringRecordsIntoIter};
@@ -58,35 +59,35 @@ impl CsvFile {
 }
 
 /// Built an Arrow array from one column in a batch of CSV records
-macro_rules! collect_column {
-    ($ROWS:expr, $COL_INDEX:expr, $TY:ty, $LEN:expr, $DEFAULT_VALUE:expr) => {{
-        let mut b: Builder<$TY> = Builder::with_capacity($LEN);
-        for row_index in 0..$LEN {
-            b.push(match $ROWS[row_index].get($COL_INDEX) {
-                Some(s) => if s.len() == 0 {
-                    $DEFAULT_VALUE
-                } else {
-                    match s.parse::<$TY>() {
-                        Ok(v) => v,
-                        Err(e) => panic!(
-                            "Failed to parse value '{}' as {} at batch row {} column {}: {:?}",
-                            s,
-                            stringify!($TY),
-                            row_index,
-                            $COL_INDEX,
-                            e
-                        ),
-                    }
-                },
-                None => panic!(
-                    "CSV file missing value at batch  row {}, column {}",
-                    row_index, $COL_INDEX
-                ),
-            })
-        }
-        Value::Column(Rc::new(Array::from(b.finish())))
-    }};
-}
+//macro_rules! collect_column {
+//    ($ROWS:expr, $COL_INDEX:expr, $TY:ty, $LEN:expr, $DEFAULT_VALUE:expr) => {{
+//        let mut b: Builder<$TY> = Builder::with_capacity($LEN);
+//        for row_index in 0..$LEN {
+//            b.push(match $ROWS[row_index].get($COL_INDEX) {
+//                Some(s) => if s.len() == 0 {
+//                    $DEFAULT_VALUE
+//                } else {
+//                    match s.parse::<$TY>() {
+//                        Ok(v) => v,
+//                        Err(e) => panic!(
+//                            "Failed to parse value '{}' as {} at batch row {} column {}: {:?}",
+//                            s,
+//                            stringify!($TY),
+//                            row_index,
+//                            $COL_INDEX,
+//                            e
+//                        ),
+//                    }
+//                },
+//                None => panic!(
+//                    "CSV file missing value at batch  row {}, column {}",
+//                    row_index, $COL_INDEX
+//                ),
+//            })
+//        }
+//        Value::Column(Rc::new(Array::from(b.finish())))
+//    }};
+//}
 
 impl DataSource for CsvFile {
     fn next(&mut self) -> Option<Result<Rc<RecordBatch>>> {
@@ -120,22 +121,22 @@ impl DataSource for CsvFile {
             .collect()
         };
 
-        let columns: Vec<Value> = column_with_index
+        let columns: Vec<Rc<Array>> = column_with_index
             .map(|(i, c)| {
                 if projection.contains(&i) {
                     match c.data_type() {
-                        DataType::Boolean => collect_column!(rows, i, bool, rows.len(), false),
-                        DataType::Int8 => collect_column!(rows, i, i8, rows.len(), 0),
-                        DataType::Int16 => collect_column!(rows, i, i16, rows.len(), 0),
-                        DataType::Int32 => collect_column!(rows, i, i32, rows.len(), 0),
-                        DataType::Int64 => collect_column!(rows, i, i64, rows.len(), 0),
-                        DataType::UInt8 => collect_column!(rows, i, u8, rows.len(), 0),
-                        DataType::UInt16 => collect_column!(rows, i, u16, rows.len(), 0),
-                        DataType::UInt32 => collect_column!(rows, i, u32, rows.len(), 0),
-                        DataType::UInt64 => collect_column!(rows, i, u64, rows.len(), 0),
-                        DataType::Float16 => collect_column!(rows, i, f32, rows.len(), 0_f32),
-                        DataType::Float32 => collect_column!(rows, i, f32, rows.len(), 0_f32),
-                        DataType::Float64 => collect_column!(rows, i, f64, rows.len(), 0_f64),
+//                        DataType::Boolean => collect_column!(rows, i, bool, rows.len(), false),
+//                        DataType::Int8 => collect_column!(rows, i, i8, rows.len(), 0),
+//                        DataType::Int16 => collect_column!(rows, i, i16, rows.len(), 0),
+//                        DataType::Int32 => collect_column!(rows, i, i32, rows.len(), 0),
+//                        DataType::Int64 => collect_column!(rows, i, i64, rows.len(), 0),
+//                        DataType::UInt8 => collect_column!(rows, i, u8, rows.len(), 0),
+//                        DataType::UInt16 => collect_column!(rows, i, u16, rows.len(), 0),
+//                        DataType::UInt32 => collect_column!(rows, i, u32, rows.len(), 0),
+//                        DataType::UInt64 => collect_column!(rows, i, u64, rows.len(), 0),
+//                        DataType::Float16 => collect_column!(rows, i, f32, rows.len(), 0_f32),
+//                        DataType::Float32 => collect_column!(rows, i, f32, rows.len(), 0_f32),
+//                        DataType::Float64 => collect_column!(rows, i, f64, rows.len(), 0_f64),
                         DataType::Utf8 => {
                             let mut builder: ListBuilder<u8> = ListBuilder::with_capacity(rows.len());
                             rows.iter().for_each(|row| {
@@ -143,26 +144,20 @@ impl DataSource for CsvFile {
                                 builder.push(s.as_bytes());
                             });
                             let buffer = builder.finish();
-                            Value::Column(Rc::new(Array::new(
-                                rows.len(),
-                                ArrayData::Utf8(buffer),
-                            )))
+                            Rc::new(Array::from(buffer))
                         }
                         _ => unimplemented!("CSV does not support data type {:?}", c.data_type())
                     }
                 } else {
                     // not in the projection
                     //println!("Not loading column {} at index {}", c.name(), i);
-                    Value::Scalar(Rc::new(ScalarValue::Null))
+                    let empty_vec: Vec<i32> = Vec::with_capacity(0);
+                    Rc::new(Array::from(empty_vec))
                 }
             })
             .collect();
 
-        Some(Ok(Rc::new(DefaultRecordBatch {
-            schema: self.schema.clone(),
-            data: columns,
-            row_count: rows.len(),
-        })))
+        Some(Ok(Rc::new(RecordBatch::new(self.schema.clone(), columns))))
     }
 
     fn schema(&self) -> &Rc<Schema> {

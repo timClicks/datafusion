@@ -20,86 +20,60 @@ use std::str;
 
 use arrow::array::*;
 use arrow::datatypes::*;
+use arrow::record_batch::*;
 
 use super::super::errors::*;
 use super::super::types::*;
-
-pub trait RecordBatch {
-    fn schema(&self) -> &Rc<Schema>;
-    fn num_columns(&self) -> usize;
-    fn num_rows(&self) -> usize;
-    fn column(&self, index: usize) -> &Value;
-    fn columns(&self) -> &Vec<Value>;
-
-    /// Read one row from a record batch (very inefficient but handy for debugging)
-    fn row_slice(&self, index: usize) -> Vec<Rc<ScalarValue>> {
-        self.columns()
-            .iter()
-            .map(|c| match c {
-                &Value::Scalar(ref v) => v.clone(),
-                &Value::Column(ref v) => Rc::new(get_value(v, index)),
-            })
-            .collect()
-    }
-}
-
+//
+//pub trait RecordBatch {
+//    fn schema(&self) -> &Rc<Schema>;
+//    fn num_columns(&self) -> usize;
+//    fn num_rows(&self) -> usize;
+//    fn column(&self, index: usize) -> &Value;
+//    fn columns(&self) -> &Vec<Value>;
+//
+//    /// Read one row from a record batch (very inefficient but handy for debugging)
+//    fn row_slice(&self, index: usize) -> Vec<Rc<ScalarValue>> {
+//        self.columns()
+//            .iter()
+//            .map(|c| match c {
+//                &Value::Scalar(ref v) => v.clone(),
+//                &Value::Column(ref v) => Rc::new(get_value(v, index)),
+//            })
+//            .collect()
+//    }
+//}
+//
 pub fn get_value(column: &Array, index: usize) -> ScalarValue {
-    ////println!("get_value() index={}", index);
-    let v = match column.data() {
-        ArrayData::Boolean(ref v) => ScalarValue::Boolean(*v.get(index)),
-        ArrayData::Float32(ref v) => ScalarValue::Float32(*v.get(index)),
-        ArrayData::Float64(ref v) => ScalarValue::Float64(*v.get(index)),
-        ArrayData::Int8(ref v) => ScalarValue::Int8(*v.get(index)),
-        ArrayData::Int16(ref v) => ScalarValue::Int16(*v.get(index)),
-        ArrayData::Int32(ref v) => ScalarValue::Int32(*v.get(index)),
-        ArrayData::Int64(ref v) => ScalarValue::Int64(*v.get(index)),
-        ArrayData::UInt8(ref v) => ScalarValue::UInt8(*v.get(index)),
-        ArrayData::UInt16(ref v) => ScalarValue::UInt16(*v.get(index)),
-        ArrayData::UInt32(ref v) => ScalarValue::UInt32(*v.get(index)),
-        ArrayData::UInt64(ref v) => ScalarValue::UInt64(*v.get(index)),
-        ArrayData::Utf8(ref data) => {
-            ScalarValue::Utf8(Rc::new(String::from(str::from_utf8(data.slice(index)).unwrap())))
-        }
-        ArrayData::Struct(ref v) => {
-            // v is Vec<ArrayData>
-            // each field has its own ArrayData e.g. lat, lon so we want to get a value from each (but it's recursive)
-            //            //println!("get_value() complex value has {} fields", v.len());
-            let fields = v.iter().map(|arr| get_value(&arr, index)).collect();
-            ScalarValue::Struct(fields)
-        }
-    };
-    //    //println!("get_value() index={} returned {:?}", index, v);
-    v
+    unimplemented!()
 }
-
-//TODO: remove pub from fields
-pub struct DefaultRecordBatch {
-    pub schema: Rc<Schema>,
-    pub data: Vec<Value>,
-    pub row_count: usize,
-}
-
-impl RecordBatch for DefaultRecordBatch {
-    fn schema(&self) -> &Rc<Schema> {
-        &self.schema
-    }
-
-    fn num_columns(&self) -> usize {
-        self.data.len()
-    }
-
-    fn num_rows(&self) -> usize {
-        self.row_count
-    }
-
-    fn column(&self, index: usize) -> &Value {
-        &self.data[index]
-    }
-
-    fn columns(&self) -> &Vec<Value> {
-        &self.data
-    }
-}
+//    ////println!("get_value() index={}", index);
+//    let v = match column.data() {
+//        ArrayData::Boolean(ref v) => ScalarValue::Boolean(*v.get(index)),
+//        ArrayData::Float32(ref v) => ScalarValue::Float32(*v.get(index)),
+//        ArrayData::Float64(ref v) => ScalarValue::Float64(*v.get(index)),
+//        ArrayData::Int8(ref v) => ScalarValue::Int8(*v.get(index)),
+//        ArrayData::Int16(ref v) => ScalarValue::Int16(*v.get(index)),
+//        ArrayData::Int32(ref v) => ScalarValue::Int32(*v.get(index)),
+//        ArrayData::Int64(ref v) => ScalarValue::Int64(*v.get(index)),
+//        ArrayData::UInt8(ref v) => ScalarValue::UInt8(*v.get(index)),
+//        ArrayData::UInt16(ref v) => ScalarValue::UInt16(*v.get(index)),
+//        ArrayData::UInt32(ref v) => ScalarValue::UInt32(*v.get(index)),
+//        ArrayData::UInt64(ref v) => ScalarValue::UInt64(*v.get(index)),
+//        ArrayData::Utf8(ref data) => {
+//            ScalarValue::Utf8(Rc::new(String::from(str::from_utf8(data.slice(index)).unwrap())))
+//        }
+//        ArrayData::Struct(ref v) => {
+//            // v is Vec<ArrayData>
+//            // each field has its own ArrayData e.g. lat, lon so we want to get a value from each (but it's recursive)
+//            //            //println!("get_value() complex value has {} fields", v.len());
+//            let fields = v.iter().map(|arr| get_value(&arr, index)).collect();
+//            ScalarValue::Struct(fields)
+//        }
+//    };
+//    //    //println!("get_value() index={} returned {:?}", index, v);
+//    v
+//}
 
 pub trait DataSource {
     fn schema(&self) -> &Rc<Schema>;
