@@ -75,8 +75,10 @@ impl AggregateFunction for TfidfFunction {
                             let word_as_string = word.to_string();
                             let index = self.dictionary.entry(word_as_string).or_insert(self.word_counts.len());
                             if *index == self.word_counts.len() {
+                                println!("New word: {}", word);
                                 self.word_counts.push(1);
                             } else {
+                                println!("Repeated word: {}", word);
                                 self.word_counts[ * index] += 1;
                             }
                         });
@@ -92,7 +94,7 @@ impl AggregateFunction for TfidfFunction {
     fn finish(&self) -> Result<Value> {
         let mut s = "".to_string();
         for (word, i) in &self.dictionary {
-            s += &format!("{}={} ", word, i);
+            s += &format!("{}={} ", word, self.word_counts[*i]);
         }
         Ok(Value::Scalar(Rc::new(ScalarValue::Utf8(Rc::new(s)))))
     }
