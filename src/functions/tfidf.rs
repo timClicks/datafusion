@@ -22,19 +22,24 @@ use super::super::errors::*;
 use super::super::types::*;
 
 use arrow::datatypes::{Schema, Field, DataType};
+use arrow::array::ListArray;
+use arrow::list_builder::ListBuilder;
 
 pub struct TfidfFunction {
     /// map of word to index
     dictionary: HashMap<String,usize>,
     /// array of word counts
-    word_counts: Vec<usize>
+    word_counts: Vec<usize>,
+    /// per-row word counts (each row has a vec of (word_index, word_count)
+    per_row_word_counts: Vec<Vec<(String,usize)>> //TODO: dictionary encode here too
 }
 
 impl TfidfFunction {
     pub fn new() -> Self {
         TfidfFunction {
             dictionary: HashMap::new(),
-            word_counts: Vec::with_capacity(1024*1024)
+            word_counts: Vec::with_capacity(1024*1024),
+            per_row_word_counts: Vec::with_capacity(1024*1024)
         }
 
     }
@@ -61,27 +66,41 @@ impl AggregateFunction for TfidfFunction {
         match args[0] {
             Value::Column(ref array) => match array.data() {
                 ArrayData::Utf8(str) => {
-                    println!("Column contains {} strings", str.len());
-
-
+                    //println!("Column contains {} strings", str.len());
                     // for each row
                     for i in 0..str.len() {
                         // seems expensive to do all this conversion ?
                         let row = str::from_utf8(str.get(i)).unwrap().to_string();
 
+                        let mut row_word_counts: HashMap<String,usize> = HashMap::new();
+
                         // crude parsing into words
                         let words = row.split_whitespace();
                         words.for_each(|word| {
                             let word_as_string = word.to_string();
-                            let index = self.dictionary.entry(word_as_string).or_insert(self.word_counts.len());
-                            if *index == self.word_counts.len() {
+                            // get index into word counts
+                            let word_index = self.dictionary.entry(word_as_string).or_insert(self.word_counts.len());
+                            // increase total word counts
+                            if *word_index == self.word_counts.len() {
                                 println!("New word: {}", word);
                                 self.word_counts.push(1);
                             } else {
                                 println!("Repeated word: {}", word);
-                                self.word_counts[ * index] += 1;
+                                self.word_counts[ * word_index] += 1;
                             }
+                            // record this row word counts
+                            let c = match row_word_counts.get(&word.to_string()) {
+                                Some(c) => c + 1,
+                                None => 1
+                            };
+                            row_word_counts.insert(word.to_string(), c);
+
                         });
+
+                        let row_summary: Vec<(String,usize)> = row_word_counts.iter()
+                            .map(|(a,b)| (a.clone(),*b))
+                            .collect();
+                        self.per_row_word_counts.push(row_summary);
                     }
                 }
                 other => panic!("Unsupported data type for TFIDF")
@@ -92,10 +111,24 @@ impl AggregateFunction for TfidfFunction {
     }
 
     fn finish(&self) -> Result<Value> {
-        let mut s = "".to_string();
-        for (word, i) in &self.dictionary {
-            s += &format!("{}={} ", word, self.word_counts[*i]);
+        // now do the aggregation part
+        // for now return results in string format instead of structured
+        let mut b: ListBuilder<u8> = ListBuilder::new();
+        for row_summary in &self.per_row_word_counts {
+
+            // build aggregate data for this row
+            let mut s = "".to_string();
+            for (word,count) in row_summary {
+                let word_index = self.dictionary.get(word).unwrap();
+                let total_word_count = self.word_counts[*word_index];
+                s += &format!("{}={}/{} ", word, count, total_word_count);
+            }
+
+            println!("ROW SUMMARY: {}", s);
+            b.push(s.as_bytes());
         }
-        Ok(Value::Scalar(Rc::new(ScalarValue::Utf8(Rc::new(s)))))
+
+        Ok(Value::Column(Rc::new(Array::new(self.per_row_word_counts.len(),
+                                    ArrayData::Utf8(ListArray::from(b.finish()))))))
     }
 }
