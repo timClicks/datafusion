@@ -299,6 +299,7 @@ pub enum AggregateType {
     Sum,
     Count,
     Avg,
+    Tfidf,
     //CountDistinct()
 }
 
@@ -352,6 +353,7 @@ pub fn compile_expr(
                 "min" => AggregateType::Min,
                 "max" => AggregateType::Max,
                 "count" => AggregateType::Count,
+                "tfidf" => AggregateType::Tfidf,
                 _ => unimplemented!("Unsupported aggregate function '{}'", name),
             };
 

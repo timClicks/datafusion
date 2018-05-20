@@ -23,19 +23,19 @@ fn main() {
     let mut ctx = ExecutionContext::local();
 
     let schema = Schema::new(vec![
-        Field::new("a", DataType::UInt32, false),
-        Field::new("b", DataType::Utf8, false),
-        Field::new("c", DataType::Float64, false),
+        Field::new("title", DataType::Utf8, false),
+        Field::new("url", DataType::Utf8, false),
+        Field::new("abstract", DataType::Utf8, false),
     ]);
 
     // open file as a dataframe
-    let ndjson = ctx.load_ndjson("test/data/example1.ndjson", &schema, None)
+    let ndjson = ctx.load_ndjson("test/data/tfidf_example.ndjson", &schema, None)
         .unwrap();
 
     ctx.register("ndjson", ndjson);
 
     // define the SQL statement
-    let sql = "SELECT a, b, c FROM ndjson";
+    let sql = "SELECT TFIDF(abstract) FROM ndjson";
 
     // create a data frame
     let df1 = ctx.sql(&sql).unwrap();

@@ -278,7 +278,7 @@ impl SqlToRel {
             &ASTNode::SQLFunction { ref id, ref args } => {
                 //TODO: fix this hack
                 match id.to_lowercase().as_ref() {
-                    "min" | "max" | "sum" | "avg" => {
+                    "min" | "max" | "sum" | "avg" | "tfidf" => {
                         let rex_args = args.iter()
                             .map(|a| self.sql_to_rex(a, schema))
                             .collect::<Result<Vec<Expr>, String>>()?;
